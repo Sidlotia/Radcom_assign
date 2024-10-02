@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-loader-job
+spec:
+  template:
+    spec:
+      containers:
+        - name: data-loader
+          image: python:3.9   # Use an appropriate Python image
+          command: ["python"]
+          args: ["/scripts/data_loader.py"]
+          volumeMounts:
+            - name: script-volume
+              mountPath: /scripts
+      restartPolicy: Never
+      volumes:
+        - name: script-volume
+          configMap:
+            name: data-loader-scripts
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-loader-scripts
+data:
+  data_loader.py: |
+    import pymysql
+
+    # Define the connection parameters
+    db_host = "mariadb-service"  # Name of the MariaDB service in Kubernetes
+    db_user = "root"             # MariaDB username
+    db_password = "password"     # MariaDB password
+    db_name = "test_db"          # Database name
+
+    # Define the table creation query
+    create_table_query = """
+    CREATE TABLE IF NOT EXISTS sensor_data (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        sensor_name VARCHAR(255) NOT NULL,
+        sensor_value FLOAT NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """
+
+    # Define the insert data query
+    insert_data_query = """
+    INSERT INTO sensor_data (sensor_name, sensor_value) 
+    VALUES (%s, %s)
+    """
+
+    # Sample data to be inserted
+    sample_data = [
+        ('temperature', 22.5),
+        ('humidity', 60.3),
+        ('temperature', 23.1),
+        ('humidity', 61.2)
+    ]
+
+    def load_data_to_mariadb():
+        try:
+            # Connect to the MariaDB database
+            connection = pymysql.connect(
+                host=db_host,
+                user=db_user,
+                password=db_password,
+                database=db_name
+            )
+            cursor = connection.cursor()
+
+            # Create table if it doesn't exist
+            cursor.execute(create_table_query)
+
+            # Insert data
+            cursor.executemany(insert_data_query, sample_data)
+            connection.commit()
+
+            print("Data loaded successfully into MariaDB!")
+        
+        except Exception as e:
+            print(f"An error occurred: {e}")
+        
+        finally:
+            # Close the database connection
+            if connection:
+                connection.close()
+
+    if __name__ == "__main__":
+        load_data_to_mariadb()
